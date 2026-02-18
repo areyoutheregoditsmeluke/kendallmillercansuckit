@@ -1,0 +1,4 @@
+flask>=3.0
+python-telegram-bot>=20.0
+requests>=2.31
+mpremote>=1.23
