@@ -224,12 +224,14 @@ You chat with Claude here
 ### macOS: flashing from the host
 
 When the git poller detects badge changes on macOS, it posts a notification.
-Run this from the host to flash:
+Copy the files out of the container and flash:
 
 ```bash
-cd pi/repo    # bind-mounted repo directory
-mpremote cp -r badge/pi_messages/ :system/apps/pi_messages/
+cd pi
+docker compose cp pi-badge:/repo/badge/pi_messages ./pi_messages_tmp
+mpremote cp -r pi_messages_tmp/ :system/apps/pi_messages/
 mpremote reset
+rm -rf pi_messages_tmp
 ```
 
 You need `mpremote` installed on the host: `pip install mpremote`
@@ -274,10 +276,6 @@ badge plugged in permanently, manual sync with `mpremote` is fine.
 - Check `docker logs pi-badge-system`
 - Verify the repo URL and branch exist remotely
 - Check `ENABLE_POLLER` is `true` in your `.env`
-
-### Container won't start on macOS
-- Make sure the `pi/repo` directory exists: `mkdir -p pi/repo`
-- The macOS compose override uses a bind mount that requires this directory
 
 ---
 
