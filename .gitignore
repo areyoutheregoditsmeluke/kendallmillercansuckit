@@ -1,0 +1,6 @@
+.context/
+__pycache__/
+*.pyc
+venv/
+.env
+pi/repo/
