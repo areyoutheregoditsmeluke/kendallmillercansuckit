@@ -4,11 +4,11 @@ Two devices, one little system:
 
 ```
 ┌─────────────────────────┐       WiFi        ┌────────────────────────────┐
-│  Raspberry Pi           │ ◄──────────────── │  GitHub Universe 2025 Badge │
-│  ─ Flask message server │                   │  (Pimoroni Tufty 2350)     │
-│  ─ Telegram bot         │                   │  ─ 2.8" color LCD 320×240  │
-│  ─ Git poller           │                   │  ─ 5 buttons               │
-│  ─ Claude Code (API)    │                   │  ─ WiFi built-in           │
+│  Docker container        │ ◄──────────────── │  GitHub Universe 2025 Badge │
+│  (Linux or macOS host)  │                   │  (Pimoroni Tufty 2350)     │
+│  ─ Flask message server │                   │  ─ 2.8" color LCD 320×240  │
+│  ─ Telegram bot         │                   │  ─ 5 buttons               │
+│  ─ Git poller           │                   │  ─ WiFi built-in           │
 └─────────────────────────┘                   └────────────────────────────┘
           ▲
           │ git pull (every 30s)
@@ -26,82 +26,94 @@ Two devices, one little system:
 
 ---
 
-## Hardware you need
+## What you need
 
 | Item | Notes |
 |---|---|
-| Raspberry Pi 4 or 5 (4 GB+ recommended) | Pi 3 works but slower |
-| MicroSD card (16 GB+) | For Pi OS |
-| USB-C cable | For badge ↔ Pi (badge sync only; comms are over WiFi) |
+| A Linux or macOS host | Raspberry Pi, any Linux box, or a Mac |
+| Docker + Docker Compose | [Install Docker](https://docs.docker.com/get-docker/) |
+| USB-C cable | For badge ↔ host (code deployment; message comms are WiFi) |
 | GitHub Universe 2025 badge | Pimoroni Tufty 2350 variant |
 | Your local WiFi network | Both devices connect to this |
 
 ---
 
-## Part 1 — Raspberry Pi setup
+## Part 1 — Docker setup
 
-### 1.1  Flash Pi OS
-
-1. Download [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
-2. Choose **Raspberry Pi OS Lite (64-bit)** (no desktop needed)
-3. In the imager settings, enable SSH and set your WiFi credentials
-4. Flash to MicroSD, boot the Pi
-
-### 1.2  SSH in and run setup
+### 1.1  Configure environment
 
 ```bash
-ssh pi@<your-pi-hostname>.local
-# or use its IP address
-
-# Clone repo and run setup
-git clone https://github.com/areyoutheregoditsmeluke/kendallmillercansuckit.git \
-    ~/kendallmillercansuckit
-bash ~/kendallmillercansuckit/pi/setup.sh
+cd pi
+cp .env.example .env
 ```
 
-The setup script will:
-- Install Python 3 + venv
-- Install Flask, python-telegram-bot, mpremote
-- Create three systemd services (server, telegram bot, git poller)
-- Create `~/.pi_badge_env` for secrets
-
-### 1.3  Configure secrets
-
-Edit `~/.pi_badge_env`:
-
-```bash
-nano ~/.pi_badge_env
-```
+Edit `.env` with your Telegram bot token and user ID (see Part 2 for how to get these):
 
 ```env
 TELEGRAM_BOT_TOKEN=1234567890:ABCdef...    # from @BotFather
 TELEGRAM_USER_ID=987654321                 # from @userinfobot
-PI_SERVER_URL=http://localhost:8765
 ```
 
-### 1.4  Find your Pi's IP address
+### 1.2  Start the container
+
+**On Linux** (Raspberry Pi, any Linux host — full USB badge flashing):
 
 ```bash
+docker compose -f docker-compose.yml -f docker-compose.linux.yml up -d --build
+```
+
+**On macOS** (server + telegram + git poller, badge flashing from host):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.macos.yml up -d --build
+```
+
+> **Why two compose files?** Docker Desktop for Mac runs containers in a Linux VM
+> that can't access USB devices. On Linux, the badge's USB serial device
+> (`/dev/ttyACM0`) is passed directly into the container. On macOS, the git
+> poller detects code changes and posts a notification — you then flash the badge
+> from the host using `mpremote` (see Part 4).
+
+### 1.3  Verify it's running
+
+```bash
+curl http://localhost:8765/health
+# → {"count":1,"ok":true,"service":"pi-badge-server"}
+
+docker logs pi-badge-system
+```
+
+### 1.4  Find your host's IP address
+
+```bash
+# Linux
 hostname -I
-# e.g. 192.168.1.42
+
+# macOS
+ipconfig getifaddr en0
 ```
 
 Write this down — you'll need it for the badge's `secrets.py`.
 
-### 1.5  Start services
+### 1.5  Optional configuration
 
-```bash
-sudo systemctl start pi-badge-server
-sudo systemctl start pi-badge-telegram
-sudo systemctl start pi-badge-poller
-```
+All settings have defaults and can be overridden in `.env`:
 
-Verify they're running:
+| Variable | Default | Description |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | *(required)* | Token from @BotFather |
+| `TELEGRAM_USER_ID` | *(required)* | Your numeric Telegram user ID |
+| `REPO_URL` | This repo's URL | Git repo to poll |
+| `REPO_BRANCH` | `claude/pi-github-device-interface-vdRro` | Branch to track |
+| `USB_MODE` | `direct` | `direct` (Linux) or `host` (macOS) |
+| `POLL_INTERVAL` | `30` | Seconds between git fetch checks |
+| `ENABLE_TELEGRAM` | `true` | Set `false` to disable the Telegram bot |
+| `ENABLE_POLLER` | `true` | Set `false` to disable the git poller |
 
-```bash
-sudo systemctl status pi-badge-server
-curl http://localhost:8765/health
-```
+### Legacy: bare-metal Pi setup
+
+The original systemd-based setup still works. See `pi/setup.sh` for details.
+Run `bash pi/setup.sh` on a Pi to install services directly without Docker.
 
 ---
 
@@ -112,7 +124,7 @@ curl http://localhost:8765/health
 1. Open Telegram, find **@BotFather**
 2. Send `/newbot`
 3. Follow prompts — you'll get a token like `1234567890:ABCdefGhIjKlmNoPqRsTuVwXyz`
-4. Put this in `TELEGRAM_BOT_TOKEN` in `~/.pi_badge_env`
+4. Put this in `TELEGRAM_BOT_TOKEN` in `pi/.env`
 
 ### 2.2  Find your Telegram user ID
 
@@ -122,7 +134,7 @@ curl http://localhost:8765/health
 
 ### 2.3  Test it
 
-Send your bot any message on Telegram. The Pi server stores it, and the badge
+Send your bot any message on Telegram. The server stores it, and the badge
 will show it on its next poll (within 5 seconds).
 
 ---
@@ -140,30 +152,33 @@ will show it on its next poll (within 5 seconds).
 Copy `badge/secrets_template.py` onto the badge drive and rename it `secrets.py`:
 
 ```bash
-# From your Pi, badge mounted as /media/pi/BADGER (adjust path):
-cp ~/kendallmillercansuckit/badge/secrets_template.py \
-   /media/pi/BADGER/secrets.py
+# Badge mounted as /media/pi/BADGER (Linux) or /Volumes/BADGER (macOS):
+cp badge/secrets_template.py /media/pi/BADGER/secrets.py   # adjust path
 ```
 
-Edit `/media/pi/BADGER/secrets.py`:
+Edit the copied `secrets.py`:
 
 ```python
 WIFI_SSID     = "your-wifi-network"
 WIFI_PASSWORD = "your-wifi-password"
-PI_HOST       = "http://192.168.1.42:8765"   # ← your Pi's IP
+PI_HOST       = "http://192.168.1.42:8765"   # ← your host's IP
 ```
 
 Eject the drive (important — LittleFS needs a clean unmount):
 
 ```bash
+# Linux
 sudo eject /media/pi/BADGER
+
+# macOS
+diskutil eject /Volumes/BADGER
 ```
 
 ### 3.3  Deploy the badge app via mpremote
 
 ```bash
-# From your Pi, with badge plugged in via USB-C (not in bootloader mode):
-cd ~/kendallmillercansuckit
+# With badge plugged in via USB-C (not in bootloader mode):
+pip install mpremote    # if not already installed
 mpremote cp -r badge/pi_messages/ :system/apps/pi_messages/
 mpremote reset
 ```
@@ -184,29 +199,42 @@ The badge will restart, appear in the MonaOS app launcher, and you can launch
 
 ---
 
-## Part 4 — Code sync (Claude → Pi → Badge)
+## Part 4 — Code sync (Claude → Container → Badge)
 
 This is the "suggest changes here, they end up on the badge" pipeline.
 
 ```
 You chat with Claude here
    ↓  Claude commits badge/ changes to this repo
-   ↓  git_poller.py on Pi fetches every 30 s
+   ↓  git_poller.py in the container fetches every 30 s
    ↓  Detects badge/ files changed
-   ↓  mpremote pushes to badge via USB
+   ↓  Linux: mpremote pushes to badge via USB (automatic)
+   ↓  macOS: notification posted, you run mpremote from host
    ↓  Badge soft-resets and loads new code
 ```
 
 ### How it works
 
-- `pi/git_poller.py` runs on the Pi as a systemd service
+- `pi/git_poller.py` runs inside the container (managed by supervisord)
 - Every 30 seconds it does `git fetch` + `git reset --hard origin/branch`
-- If any file under `badge/` changed, it runs:
-  ```bash
-  mpremote cp -r badge/pi_messages/ :system/apps/pi_messages/
-  mpremote reset
-  ```
-- It also posts a notification message to the badge display
+- If any file under `badge/` changed:
+  - **Linux** (`USB_MODE=direct`): runs mpremote inside the container to flash the badge
+  - **macOS** (`USB_MODE=host`): posts a notification with the mpremote command to run from the host
+
+### macOS: flashing from the host
+
+When the git poller detects badge changes on macOS, it posts a notification.
+Copy the files out of the container and flash:
+
+```bash
+cd pi
+docker compose cp pi-badge:/repo/badge/pi_messages ./pi_messages_tmp
+mpremote cp -r pi_messages_tmp/ :system/apps/pi_messages/
+mpremote reset
+rm -rf pi_messages_tmp
+```
+
+You need `mpremote` installed on the host: `pip install mpremote`
 
 ### Force an immediate poll
 
@@ -215,47 +243,9 @@ poller detects and acts on immediately (instead of waiting up to 30 s).
 
 ### For the badge to be auto-synced, it must be plugged in via USB-C
 
-The WiFi channel is used only for message passing (badge polls Pi's HTTP API).
+The WiFi channel is used only for message passing (badge polls the HTTP API).
 Code deployment requires USB (via mpremote). If you don't want to leave the
 badge plugged in permanently, manual sync with `mpremote` is fine.
-
----
-
-## Part 5 — Running Claude Code on the Pi
-
-Claude Code runs on the Pi using the Anthropic API (no local GPU needed).
-
-```bash
-# Install Node.js (required by Claude Code)
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt-get install -y nodejs
-
-# Install Claude Code
-npm install -g @anthropic/claude-code
-
-# Set your API key
-echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ~/.bashrc
-source ~/.bashrc
-
-# Run
-claude
-```
-
-### About "NanoLM / local LLM on Pi"
-
-If you want a fully offline local LLM (no Anthropic API key required), install
-**Ollama** and run a small model:
-
-```bash
-curl -fsSL https://ollama.ai/install.sh | sh
-ollama pull phi3.5          # ~2 GB, works on Pi 4 (4 GB RAM)
-# or:
-ollama pull llama3.2:3b     # ~2 GB
-ollama serve                # runs on localhost:11434
-```
-
-Pi 5 with 8 GB RAM is recommended for reasonable speed. Pi 4 with 4 GB can
-run phi3.5 at ~2 tokens/s — slow but functional for non-interactive tasks.
 
 ---
 
@@ -267,42 +257,53 @@ run phi3.5 at ~2 tokens/s — slow but functional for non-interactive tasks.
 - Make sure your WiFi is 2.4 GHz (the RP2350 doesn't do 5 GHz)
 
 ### Badge shows "Offline" / "Fetch error"
-- Confirm the Pi server is running: `curl http://<pi-ip>:8765/health`
+- Confirm the server is running: `curl http://<host-ip>:8765/health`
 - Confirm `PI_HOST` in `secrets.py` has the correct IP and port
-- Check the Pi's firewall: `sudo ufw allow 8765` or `sudo ufw disable`
+- Check the host's firewall: `sudo ufw allow 8765` (Linux) or System Settings → Firewall (macOS)
 
 ### mpremote can't find the badge
 - Badge must be in normal (non-bootloader) mode — just plugged in via USB-C
 - Run `mpremote connect list` to see detected devices
 - Try a different USB-C cable (some are charge-only)
+- On macOS, run mpremote from the host (not inside the container)
 
 ### Telegram bot doesn't respond
-- Check `journalctl -u pi-badge-telegram -f`
-- Verify `TELEGRAM_BOT_TOKEN` is correct
-- Make sure the Pi has internet access: `curl https://api.telegram.org`
+- Check `docker logs pi-badge-system`
+- Verify `TELEGRAM_BOT_TOKEN` is correct in `pi/.env`
+- Make sure the host has internet access
 
 ### Git poller not syncing
-- Check `journalctl -u pi-badge-poller -f`
-- Verify the repo path is correct and the branch exists remotely
-- Test manually: `cd ~/kendallmillercansuckit && git fetch origin claude/pi-github-device-interface-vdRro`
+- Check `docker logs pi-badge-system`
+- Verify the repo URL and branch exist remotely
+- Check `ENABLE_POLLER` is `true` in your `.env`
 
 ---
 
-## Service management quick reference
+## Container management quick reference
 
 ```bash
-# Status
-sudo systemctl status pi-badge-server pi-badge-telegram pi-badge-poller
+cd pi
 
-# Restart all
-sudo systemctl restart pi-badge-server pi-badge-telegram pi-badge-poller
+# Start (pick your platform)
+docker compose -f docker-compose.yml -f docker-compose.linux.yml up -d --build   # Linux
+docker compose -f docker-compose.yml -f docker-compose.macos.yml up -d --build   # macOS
 
-# Live logs
-journalctl -u pi-badge-server   -f
-journalctl -u pi-badge-telegram -f
-journalctl -u pi-badge-poller   -f
+# Logs
+docker logs -f pi-badge-system
+
+# Restart
+docker compose restart
+
+# Stop
+docker compose down
+
+# Stop and remove volumes (deletes messages + cloned repo)
+docker compose down -v
+
+# Health check
+curl http://localhost:8765/health
 
 # Deploy badge app manually
-mpremote cp -r ~/kendallmillercansuckit/badge/pi_messages/ :system/apps/pi_messages/
+mpremote cp -r badge/pi_messages/ :system/apps/pi_messages/
 mpremote reset
 ```

@@ -23,7 +23,7 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 
 # ── Persistence ──────────────────────────────────────────────────────────────
-DATA_FILE    = os.path.expanduser("~/pi_messages.json")
+DATA_FILE    = os.environ.get("DATA_FILE", "/data/pi_messages.json")
 MAX_MESSAGES = 200    # keep at most this many in the file
 
 

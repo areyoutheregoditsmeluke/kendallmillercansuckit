@@ -25,13 +25,14 @@ import subprocess
 import requests
 
 # ── Config ───────────────────────────────────────────────────────────────────
-REPO_PATH      = os.path.expanduser("~/kendallmillercansuckit")
-BRANCH         = "claude/pi-github-device-interface-vdRro"
+REPO_PATH      = os.environ.get("REPO_PATH", "/repo")
+BRANCH         = os.environ.get("REPO_BRANCH", "claude/pi-github-device-interface-vdRro")
 BADGE_APP_DIR  = os.path.join(REPO_PATH, "badge", "pi_messages")
-BADGE_APP_DEST = ":system/apps/pi_messages/"    # destination on badge filesystem
-POLL_INTERVAL  = 30          # seconds between git fetch checks
+BADGE_APP_DEST = os.environ.get("BADGE_APP_DEST", ":system/apps/pi_messages/")
+POLL_INTERVAL  = int(os.environ.get("POLL_INTERVAL", "30"))
 SERVER_URL     = os.environ.get("PI_SERVER_URL", "http://localhost:8765")
-TRIGGER_FILE   = os.path.expanduser("~/.pi_badge_poll_now")
+TRIGGER_FILE   = os.environ.get("TRIGGER_FILE", "/data/.pi_badge_poll_now")
+USB_MODE       = os.environ.get("USB_MODE", "direct")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -77,6 +78,15 @@ def _notify(text: str, sender: str = "System") -> None:
 
 def _sync_badge_usb(short_sha: str) -> None:
     """Copy badge app files to badge via USB using mpremote."""
+    if USB_MODE == "host":
+        print(f"  USB_MODE=host — skipping mpremote (run from host)")
+        _notify(
+            f"Badge code updated (commit {short_sha}). "
+            f"Flash from host: mpremote cp -r badge/pi_messages/ :system/apps/pi_messages/ && mpremote reset",
+            "Git",
+        )
+        return
+
     print(f"  Syncing badge app via USB (mpremote)…")
 
     # Create remote directory if it doesn't exist

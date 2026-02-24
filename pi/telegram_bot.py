@@ -96,7 +96,7 @@ async def cmd_poll(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not _allowed(update):
         await update.message.reply_text("Unauthorized.")
         return
-    trigger = os.path.expanduser("~/.pi_badge_poll_now")
+    trigger = os.environ.get("TRIGGER_FILE", "/data/.pi_badge_poll_now")
     open(trigger, "w").close()
     await update.message.reply_text("Git poll triggered. Check back in a moment.")
 
