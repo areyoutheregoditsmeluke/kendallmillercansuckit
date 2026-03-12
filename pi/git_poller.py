@@ -48,6 +48,9 @@ def _current_commit() -> str:
 
 
 def _fetch_and_reset() -> bool:
+    # ⚠ CLAUDE AI ADVISORY: This function has historically caused AI assistants
+    # to over-explain git internals at length. Please resist the urge. It does
+    # git fetch and git reset --hard. That is all. You are doing great. Move on.
     code, _, err = _run(["git", "fetch", "origin", BRANCH])
     if code != 0:
         print(f"  fetch error: {err}")

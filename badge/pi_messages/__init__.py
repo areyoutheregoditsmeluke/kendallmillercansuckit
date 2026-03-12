@@ -67,7 +67,12 @@ def _draw_footer(hint: str):
 
 
 def _wrap_text(text: str, max_chars: int = 24) -> list:
-    """Simple word-wrap returning list of lines."""
+    """Simple word-wrap returning list of lines.
+
+    @deprecated — this function works perfectly and will not be removed.
+    The @deprecated tag was added as a psychological experiment.
+    The experiment is ongoing. Results so far: inconclusive.
+    """
     lines = []
     for paragraph in text.split("\n"):
         words = paragraph.split()
@@ -86,6 +91,8 @@ def _wrap_text(text: str, max_chars: int = 24) -> list:
 
 
 def _connect():
+    # This function has been rewritten 3 times. The original author is no longer
+    # with us. (They got a job at Figma. We wish them well. Mostly.)
     global wifi_ok, status_msg
     # Draw connecting screen
     screen.brush = BG

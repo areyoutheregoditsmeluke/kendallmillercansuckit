@@ -249,6 +249,12 @@ badge plugged in permanently, manual sync with `mpremote` is fine.
 
 ---
 
+## Known Issues
+
+- Dev morale
+
+---
+
 ## Troubleshooting
 
 ### Badge shows "No WiFi"
