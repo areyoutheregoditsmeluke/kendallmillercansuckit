@@ -1,45 +1,49 @@
 # KendallMillerCanSuckIt
 
-A Raspberry Pi Telegram bot that provides AI-powered research capabilities. Request research on any topic via Telegram, and get comprehensive summaries delivered to your phone or e-reader.
+A Raspberry Pi AI automation suite with Telegram integration. Research any topic, get daily morning briefings, and more.
+
+## Features
+
+### 🧠 AI Research Bot
+Request research on any topic via Telegram:
+- `research: <topic>` — Free local research using Ollama
+- `research-claude: <topic>` — Premium research using Claude API
+- Auto-saves to Instapaper for e-reader sync
+
+### 🌅 Morning Briefing (New!)
+Automated daily briefing delivered to Telegram at 6am weekdays:
+- AI News summary (Nathan B Jones videos)
+- Oura Ring readiness score & sleep analysis
+- Google Calendar meetings summary
+- Weather forecast
+- All synthesized into one message before you wake up
 
 ## Quick Start
 
 ```bash
 # Clone and install
-cd ~
 git clone <repo-url> kendallmillercansuckit
 cd kendallmillercansuckit/pi
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv ../venv
+source ../venv/bin/activate
 pip install -r requirements.txt
 
-# Configure (see SETUP.md for details)
-nano ~/.pi_badge_env
+# Configure
+nano ~/.pi_badge_env  # Add your API keys
 
-# Install systemd service
+# Install services
 sudo cp kendallmiller-bot.service /etc/systemd/system/
 sudo systemctl enable --now kendallmiller-bot
+
+# Enable morning brief (optional)
+sudo cp /home/luke/kendallmillercansuckit/morning-brief.* /etc/systemd/system/
+sudo systemctl enable --now morning-brief.timer
 ```
 
-See [SETUP.md](SETUP.md) for detailed setup instructions.
+## Documentation
 
-## Features
-
-- **Local AI Research** — Free research using Ollama (llama3.2:3b)
-- **Claude API Research** — Premium research using Anthropic's Claude
-- **Instapaper Integration** — Auto-sync to Kobo e-readers
-- **Private & Secure** — Only responds to your Telegram user ID
-
-## Usage
-
-Send your bot a message on Telegram:
-
-```
-research: quantum computing
-research-claude: history of the internet
-```
-
-The bot conducts research and optionally saves to Instapaper for e-reader sync.
+- [SETUP.md](SETUP.md) — Complete setup guide for research bot
+- [pi/morning-brief-setup.md](pi/morning-brief-setup.md) — Morning briefing setup
 
 ## Requirements
 
@@ -48,15 +52,35 @@ The bot conducts research and optionally saves to Instapaper for e-reader sync.
 - Telegram bot token
 - Optional: Ollama for local research
 - Optional: Claude API key for premium research
-- Optional: Instapaper account for e-reader sync
+- Optional: Oura, Google Calendar, Weather API keys for morning brief
 
-## Documentation
+## Architecture
 
-- [SETUP.md](SETUP.md) — Complete setup guide
-- [Telegram Bot API](https://core.telegram.org/bots) — Create a bot
-- [Ollama](https://ollama.ai) — Local LLM installation
-- [Anthropic API](https://console.anthropic.com) — Claude API access
-- [Instapaper API](https://www.instapaper.com/api) — E-reader integration
+```
+┌─────────────────────────┐
+│  Your Phone (Telegram)  │
+└───────────┬─────────────┘
+            │
+            ▼
+┌─────────────────────────┐
+│  Raspberry Pi           │
+│  ├─ Research Bot        │
+│  ├─ Morning Brief       │
+│  ├─ Ollama (optional)   │
+│  └─ Systemd services    │
+└───────────┬─────────────┘
+            │
+            ▼
+┌─────────────────────────┐
+│  External Services      │
+│  ├─ Claude API          │
+│  ├─ Instapaper          │
+│  ├─ Oura Ring           │
+│  ├─ Google Calendar     │
+│  ├─ YouTube API         │
+│  └─ Weather API         │
+└─────────────────────────┘
+```
 
 ## License
 
