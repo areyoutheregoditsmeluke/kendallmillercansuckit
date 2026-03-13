@@ -1,8 +1,0 @@
-# Linux override — USB device passthrough for mpremote
-# Usage: docker compose -f docker-compose.yml -f docker-compose.linux.yml up -d --build
-services:
-  pi-badge:
-    devices:
-      - /dev/ttyACM0:/dev/ttyACM0
-    environment:
-      - USB_MODE=direct

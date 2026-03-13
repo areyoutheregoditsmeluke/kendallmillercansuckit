@@ -1,7 +1,0 @@
-# macOS override — USB not available in Docker Desktop, flash from host
-# Usage: docker compose -f docker-compose.yml -f docker-compose.macos.yml up -d --build
-# Flash from host: docker compose cp pi-badge:/repo/badge/pi_messages ./pi_messages_tmp && mpremote cp -r pi_messages_tmp/ :system/apps/pi_messages/ && mpremote reset && rm -rf pi_messages_tmp
-services:
-  pi-badge:
-    environment:
-      - USB_MODE=host

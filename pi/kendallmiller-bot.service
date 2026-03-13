@@ -1,0 +1,16 @@
+[Unit]
+Description=KendallMillerCanSuckIt Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=luke
+WorkingDirectory=/home/luke/kendallmillercansuckit/pi
+EnvironmentFile=/home/luke/.pi_badge_env
+ExecStart=/home/luke/kendallmillercansuckit/pi/venv/bin/python3 /home/luke/kendallmillercansuckit/pi/telegram_bot.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

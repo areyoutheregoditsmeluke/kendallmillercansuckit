@@ -1,251 +1,153 @@
-# Pi + GitHub Badge System — Setup Guide
+# KendallMillerCanSuckIt — Raspberry Pi Research Bot
 
-Two devices, one little system:
-
-```
-┌─────────────────────────┐       WiFi        ┌────────────────────────────┐
-│  Docker container        │ ◄──────────────── │  GitHub Universe 2025 Badge │
-│  (Linux or macOS host)  │                   │  (Pimoroni Tufty 2350)     │
-│  ─ Flask message server │                   │  ─ 2.8" color LCD 320×240  │
-│  ─ Telegram bot         │                   │  ─ 5 buttons               │
-│  ─ Git poller           │                   │  ─ WiFi built-in           │
-└─────────────────────────┘                   └────────────────────────────┘
-          ▲
-          │ git pull (every 30s)
-          │
-┌─────────────────────────┐
-│  This GitHub repo       │
-│  (you edit via Claude)  │
-└─────────────────────────┘
-          ▲
-          │ Telegram message
-┌─────────────────────────┐
-│  Your Phone             │
-└─────────────────────────┘
-```
+A Telegram bot running on Raspberry Pi that provides AI-powered research capabilities using either local Ollama or Claude API, with optional Instapaper integration for e-reader sync.
 
 ---
 
-## What you need
+## Features
+
+- **AI Research**: Request research on any topic via Telegram
+  - `research: <topic>` — Free local research using Ollama (llama3.2:3b)
+  - `research-claude: <topic>` — Premium research using Claude API
+- **Instapaper Integration**: Automatically save research articles to Instapaper, which syncs to Kobo e-readers
+- **Private**: Only responds to your Telegram user ID
+- **Simple**: One systemd service, minimal dependencies
+
+---
+
+## Prerequisites
 
 | Item | Notes |
 |---|---|
-| A Linux or macOS host | Raspberry Pi, any Linux box, or a Mac |
-| Docker + Docker Compose | [Install Docker](https://docs.docker.com/get-docker/) |
-| USB-C cable | For badge ↔ host (code deployment; message comms are WiFi) |
-| GitHub Universe 2025 badge | Pimoroni Tufty 2350 variant |
-| Your local WiFi network | Both devices connect to this |
+| Raspberry Pi | Any Pi with network connectivity (tested on Pi 4) |
+| Raspberry Pi OS | Bookworm or newer recommended |
+| Ollama (optional) | For local AI research - install from ollama.ai |
+| Claude API key (optional) | For premium research - get from console.anthropic.com |
+| Instapaper account (optional) | For e-reader sync - sign up at instapaper.com |
 
 ---
 
-## Part 1 — Docker setup
+## Setup
 
-### 1.1  Configure environment
+### 1. Clone the repository
+
+```bash
+cd ~
+git clone <your-repo-url> kendallmillercansuckit
+cd kendallmillercansuckit
+```
+
+### 2. Install Python dependencies
 
 ```bash
 cd pi
-cp .env.example .env
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-Edit `.env` with your Telegram bot token and user ID (see Part 2 for how to get these):
-
-```env
-TELEGRAM_BOT_TOKEN=1234567890:ABCdef...    # from @BotFather
-TELEGRAM_USER_ID=987654321                 # from @userinfobot
-```
-
-### 1.2  Start the container
-
-**On Linux** (Raspberry Pi, any Linux host — full USB badge flashing):
+### 3. Create environment file
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.linux.yml up -d --build
+cat > ~/.pi_badge_env << 'ENVEOF'
+# Telegram (required)
+TELEGRAM_BOT_TOKEN=<your-bot-token>
+TELEGRAM_USER_ID=<your-numeric-user-id>
+
+# Claude API (optional - for research-claude feature)
+CLAUDE_API_KEY=<your-claude-api-key>
+
+# Instapaper (optional - for e-reader sync)
+INSTAPAPER_CONSUMER_KEY=<your-consumer-key>
+INSTAPAPER_CONSUMER_SECRET=<your-consumer-secret>
+INSTAPAPER_OAUTH_TOKEN=<your-oauth-token>
+INSTAPAPER_OAUTH_TOKEN_SECRET=<your-oauth-token-secret>
+ENVEOF
+
+chmod 600 ~/.pi_badge_env
 ```
 
-**On macOS** (server + telegram + git poller, badge flashing from host):
+#### Getting Telegram credentials
+
+1. **Bot Token**: Message @BotFather on Telegram
+   - Send `/newbot` and follow prompts
+   - You'll receive a token like `1234567890:ABCdefGhIjKlmNoPqRsTuVwXyz`
+   
+2. **User ID**: Message @userinfobot on Telegram
+   - It will reply with your numeric user ID (e.g. `987654321`)
+
+#### Getting Instapaper credentials (optional)
+
+1. Go to https://www.instapaper.com/api
+2. Register for API access to get consumer key/secret
+3. Use OAuth flow to get access tokens (see scripts/telegram_research_bot.py --setup for helper)
+
+### 4. Install Ollama (optional, for local research)
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.macos.yml up -d --build
+curl -fsSL https://ollama.ai/install.sh | sh
+ollama pull llama3.2:3b
 ```
 
-> **Why two compose files?** Docker Desktop for Mac runs containers in a Linux VM
-> that can't access USB devices. On Linux, the badge's USB serial device
-> (`/dev/ttyACM0`) is passed directly into the container. On macOS, the git
-> poller detects code changes and posts a notification — you then flash the badge
-> from the host using `mpremote` (see Part 4).
-
-### 1.3  Verify it's running
+### 5. Set up systemd service
 
 ```bash
-curl http://localhost:8765/health
-# → {"count":1,"ok":true,"service":"pi-badge-server"}
+sudo cat > /etc/systemd/system/kendallmiller-bot.service << 'SERVICEEOF'
+[Unit]
+Description=KendallMillerCanSuckIt Telegram Bot
+After=network-online.target
+Wants=network-online.target
 
-docker logs pi-badge-system
+[Service]
+Type=simple
+User=luke
+WorkingDirectory=/home/luke/kendallmillercansuckit/pi
+EnvironmentFile=/home/luke/.pi_badge_env
+ExecStart=/home/luke/kendallmillercansuckit/pi/venv/bin/python3 /home/luke/kendallmillercansuckit/pi/telegram_bot.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+SERVICEEOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable kendallmiller-bot
+sudo systemctl start kendallmiller-bot
 ```
 
-### 1.4  Find your host's IP address
+### 6. Verify it's running
 
 ```bash
-# Linux
-hostname -I
-
-# macOS
-ipconfig getifaddr en0
+sudo systemctl status kendallmiller-bot
+sudo journalctl -u kendallmiller-bot -f
 ```
-
-Write this down — you'll need it for the badge's `secrets.py`.
-
-### 1.5  Optional configuration
-
-All settings have defaults and can be overridden in `.env`:
-
-| Variable | Default | Description |
-|---|---|---|
-| `TELEGRAM_BOT_TOKEN` | *(required)* | Token from @BotFather |
-| `TELEGRAM_USER_ID` | *(required)* | Your numeric Telegram user ID |
-| `REPO_URL` | This repo's URL | Git repo to poll |
-| `REPO_BRANCH` | `claude/pi-github-device-interface-vdRro` | Branch to track |
-| `USB_MODE` | `direct` | `direct` (Linux) or `host` (macOS) |
-| `POLL_INTERVAL` | `30` | Seconds between git fetch checks |
-| `ENABLE_TELEGRAM` | `true` | Set `false` to disable the Telegram bot |
-| `ENABLE_POLLER` | `true` | Set `false` to disable the git poller |
-
-### Legacy: bare-metal Pi setup
-
-The original systemd-based setup still works. See `pi/setup.sh` for details.
-Run `bash pi/setup.sh` on a Pi to install services directly without Docker.
 
 ---
 
-## Part 2 — Telegram bot setup
+## Usage
 
-### 2.1  Create a bot
+### Commands
 
-1. Open Telegram, find **@BotFather**
-2. Send `/newbot`
-3. Follow prompts — you'll get a token like `1234567890:ABCdefGhIjKlmNoPqRsTuVwXyz`
-4. Put this in `TELEGRAM_BOT_TOKEN` in `pi/.env`
-
-### 2.2  Find your Telegram user ID
-
-1. Start a chat with **@userinfobot**
-2. It replies with your numeric user ID (e.g. `987654321`)
-3. Put this in `TELEGRAM_USER_ID` — the bot will ignore anyone else
-
-### 2.3  Test it
-
-Send your bot any message on Telegram. The server stores it, and the badge
-will show it on its next poll (within 5 seconds).
-
----
-
-## Part 3 — Badge setup
-
-### 3.1  Mount the badge as a USB drive
-
-1. Plug the badge into your Pi (or laptop) via USB-C
-2. Double-press the **RESET** button on the back
-3. The badge mounts as a drive named **BADGER** or **TUFTY2350**
-
-### 3.2  Copy secrets.py
-
-Copy `badge/secrets_template.py` onto the badge drive and rename it `secrets.py`:
-
-```bash
-# Badge mounted as /media/pi/BADGER (Linux) or /Volumes/BADGER (macOS):
-cp badge/secrets_template.py /media/pi/BADGER/secrets.py   # adjust path
-```
-
-Edit the copied `secrets.py`:
-
-```python
-WIFI_SSID     = "your-wifi-network"
-WIFI_PASSWORD = "your-wifi-password"
-PI_HOST       = "http://192.168.1.42:8765"   # ← your host's IP
-```
-
-Eject the drive (important — LittleFS needs a clean unmount):
-
-```bash
-# Linux
-sudo eject /media/pi/BADGER
-
-# macOS
-diskutil eject /Volumes/BADGER
-```
-
-### 3.3  Deploy the badge app via mpremote
-
-```bash
-# With badge plugged in via USB-C (not in bootloader mode):
-pip install mpremote    # if not already installed
-mpremote cp -r badge/pi_messages/ :system/apps/pi_messages/
-mpremote reset
-```
-
-The badge will restart, appear in the MonaOS app launcher, and you can launch
-**Pi Messages** from the menu.
-
-### 3.4  Badge controls
-
-| Button | Action |
+| Command | Description |
 |---|---|
-| **A** | Previous message |
-| **C** | Next message |
-| **UP** | Scroll up within a long message |
-| **DOWN** | Scroll down within a long message |
-| **A + C held** | Force refresh from Pi now |
-| **HOME** | Return to MonaOS menu |
+| `/start` | Show help and available features |
+| `/status` | Check server health (Ollama status, etc.) |
+| `research: <topic>` | Request research using Ollama (free, local) |
+| `research-claude: <topic>` | Request research using Claude API (requires API key) |
 
----
-
-## Part 4 — Code sync (Claude → Container → Badge)
-
-This is the "suggest changes here, they end up on the badge" pipeline.
+### Examples
 
 ```
-You chat with Claude here
-   ↓  Claude commits badge/ changes to this repo
-   ↓  git_poller.py in the container fetches every 30 s
-   ↓  Detects badge/ files changed
-   ↓  Linux: mpremote pushes to badge via USB (automatic)
-   ↓  macOS: notification posted, you run mpremote from host
-   ↓  Badge soft-resets and loads new code
+research: quantum computing
+research-claude: history of the internet
 ```
 
-### How it works
-
-- `pi/git_poller.py` runs inside the container (managed by supervisord)
-- Every 30 seconds it does `git fetch` + `git reset --hard origin/branch`
-- If any file under `badge/` changed:
-  - **Linux** (`USB_MODE=direct`): runs mpremote inside the container to flash the badge
-  - **macOS** (`USB_MODE=host`): posts a notification with the mpremote command to run from the host
-
-### macOS: flashing from the host
-
-When the git poller detects badge changes on macOS, it posts a notification.
-Copy the files out of the container and flash:
-
-```bash
-cd pi
-docker compose cp pi-badge:/repo/badge/pi_messages ./pi_messages_tmp
-mpremote cp -r pi_messages_tmp/ :system/apps/pi_messages/
-mpremote reset
-rm -rf pi_messages_tmp
-```
-
-You need `mpremote` installed on the host: `pip install mpremote`
-
-### Force an immediate poll
-
-Send `/poll` to your Telegram bot. The bot touches a trigger file that the
-poller detects and acts on immediately (instead of waiting up to 30 s).
-
-### For the badge to be auto-synced, it must be plugged in via USB-C
-
-The WiFi channel is used only for message passing (badge polls the HTTP API).
-Code deployment requires USB (via mpremote). If you don't want to leave the
-badge plugged in permanently, manual sync with `mpremote` is fine.
+The bot will:
+1. Acknowledge your request
+2. Conduct research (2-3 minutes for Ollama, ~30-60 seconds for Claude)
+3. Post results to Instapaper if configured
+4. Reply with a preview and confirmation
 
 ---
 
@@ -257,59 +159,168 @@ badge plugged in permanently, manual sync with `mpremote` is fine.
 
 ## Troubleshooting
 
-### Badge shows "No WiFi"
-- Check `secrets.py` is at the root of the badge filesystem (`/secrets.py`)
-- Verify SSID/password are correct
-- Make sure your WiFi is 2.4 GHz (the RP2350 doesn't do 5 GHz)
+### Bot doesn't respond
 
-### Badge shows "Offline" / "Fetch error"
-- Confirm the server is running: `curl http://<host-ip>:8765/health`
-- Confirm `PI_HOST` in `secrets.py` has the correct IP and port
-- Check the host's firewall: `sudo ufw allow 8765` (Linux) or System Settings → Firewall (macOS)
+```bash
+# Check service status
+sudo systemctl status kendallmiller-bot
 
-### mpremote can't find the badge
-- Badge must be in normal (non-bootloader) mode — just plugged in via USB-C
-- Run `mpremote connect list` to see detected devices
-- Try a different USB-C cable (some are charge-only)
-- On macOS, run mpremote from the host (not inside the container)
+# Check logs
+sudo journalctl -u kendallmiller-bot -n 50
 
-### Telegram bot doesn't respond
-- Check `docker logs pi-badge-system`
-- Verify `TELEGRAM_BOT_TOKEN` is correct in `pi/.env`
-- Make sure the host has internet access
+# Verify environment file
+cat ~/.pi_badge_env
 
-### Git poller not syncing
-- Check `docker logs pi-badge-system`
-- Verify the repo URL and branch exist remotely
-- Check `ENABLE_POLLER` is `true` in your `.env`
+# Test bot manually
+source ~/kendallmillercansuckit/pi/venv/bin/activate
+source ~/.pi_badge_env
+python3 ~/kendallmillercansuckit/pi/telegram_bot.py
+```
+
+### Ollama research fails
+
+```bash
+# Check if Ollama is running
+curl http://localhost:11434/api/tags
+
+# Start Ollama if needed
+ollama serve
+
+# Check model is installed
+ollama list
+```
+
+### Claude API research fails
+
+- Verify `CLAUDE_API_KEY` is set in `~/.pi_badge_env`
+- Check API key is valid at console.anthropic.com
+- Ensure you have API credits
+
+### Instapaper sync not working
+
+- Verify all 4 Instapaper credentials are set in `~/.pi_badge_env`
+- Test OAuth tokens are still valid
+- Check logs for specific error messages
 
 ---
 
-## Container management quick reference
+## Maintenance
+
+### Update the bot
 
 ```bash
-cd pi
-
-# Start (pick your platform)
-docker compose -f docker-compose.yml -f docker-compose.linux.yml up -d --build   # Linux
-docker compose -f docker-compose.yml -f docker-compose.macos.yml up -d --build   # macOS
-
-# Logs
-docker logs -f pi-badge-system
-
-# Restart
-docker compose restart
-
-# Stop
-docker compose down
-
-# Stop and remove volumes (deletes messages + cloned repo)
-docker compose down -v
-
-# Health check
-curl http://localhost:8765/health
-
-# Deploy badge app manually
-mpremote cp -r badge/pi_messages/ :system/apps/pi_messages/
-mpremote reset
+cd ~/kendallmillercansuckit
+git pull
+sudo systemctl restart kendallmiller-bot
 ```
+
+### View logs
+
+```bash
+# Recent logs
+sudo journalctl -u kendallmiller-bot -n 100
+
+# Follow logs in real-time
+sudo journalctl -u kendallmiller-bot -f
+
+# Logs since last boot
+sudo journalctl -u kendallmiller-bot -b
+```
+
+### Stop/restart service
+
+```bash
+sudo systemctl stop kendallmiller-bot
+sudo systemctl start kendallmiller-bot
+sudo systemctl restart kendallmiller-bot
+```
+
+---
+
+## Advanced Configuration
+
+### Change Ollama model
+
+Edit `pi/telegram_bot.py` and change the model in `research_with_ollama()`:
+
+```python
+data = {
+    "model": "llama3.2:3b",  # Change to any installed model
+    # ...
+}
+```
+
+Then:
+```bash
+ollama pull <model-name>
+sudo systemctl restart kendallmiller-bot
+```
+
+### Change Claude model
+
+Edit `pi/telegram_bot.py` and change the model in `research_with_claude()`:
+
+```python
+data = {
+    "model": "claude-sonnet-4-5-20250929",  # Change to any available model
+    # ...
+}
+```
+
+### Disable features
+
+Remove or comment out credentials in `~/.pi_badge_env` to disable:
+- Claude research: remove `CLAUDE_API_KEY`
+- Instapaper sync: remove `INSTAPAPER_*` keys
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────┐
+│  Your Phone (Telegram)  │
+└───────────┬─────────────┘
+            │
+            ▼
+┌─────────────────────────┐
+│  Raspberry Pi           │
+│  ├─ Telegram Bot        │◄───┐
+│  ├─ Ollama (optional)   │    │ Research
+│  └─ Systemd service     │────┘
+└───────────┬─────────────┘
+            │
+            ▼
+┌─────────────────────────┐
+│  External Services      │
+│  ├─ Claude API          │
+│  └─ Instapaper API      │
+└─────────────────────────┘
+            │
+            ▼
+┌─────────────────────────┐
+│  Kobo E-Reader          │
+│  (auto-syncs from       │
+│   Instapaper)           │
+└─────────────────────────┘
+```
+
+---
+
+## File Structure
+
+```
+kendallmillercansuckit/
+├── pi/
+│   ├── telegram_bot.py        # Main bot code
+│   ├── requirements.txt       # Python dependencies
+│   └── .env.example          # Environment template
+├── SETUP.md                   # This file
+└── scripts/                   # Helper scripts (legacy)
+```
+
+---
+
+## Credits
+
+Built for research and learning, inspired by the desire to have AI research delivered directly to an e-reader.
