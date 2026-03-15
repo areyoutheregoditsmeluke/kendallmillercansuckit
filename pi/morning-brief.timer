@@ -1,0 +1,11 @@
+[Unit]
+Description=Morning Brief Timer (7:30am ET weekdays)
+Requires=morning-brief.service
+
+[Timer]
+# Run at 7:30 AM Eastern (11:30 GMT) Monday-Friday
+OnCalendar=Mon-Fri *-*-* 11:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
