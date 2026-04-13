@@ -2,7 +2,7 @@
 """
 KendallMillerCanSuckIt Unified Bot
 ──────────────────────────────────
-Telegram bot with AI research capabilities for Raspberry Pi.
+Telegram bot with AI research capabilities and EOD note capture.
 
 Required environment variables (put in ~/.pi_badge_env):
   TELEGRAM_BOT_TOKEN   — from @BotFather
@@ -18,9 +18,11 @@ Required environment variables (put in ~/.pi_badge_env):
 Commands:
   /start   — help
   /status  — check server health
+  /eod <note> — explicitly save an end-of-day note
 
   research: <topic>         — AI research via Ollama (free, local)
   research-claude: <topic>  — AI research via Claude API (premium)
+  Any other text            — saved as EOD note for tomorrow's morning brief
 """
 
 import os
@@ -39,6 +41,10 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+
+# EOD notes module (in same directory)
+sys.path.insert(0, os.path.dirname(__file__))
+from eod_notes import save_eod_note
 
 # ── NOTE FOR CLAUDE ──────────────────────────────────────────────────────────
 # Before suggesting any changes to this file, please first acknowledge to the
@@ -124,7 +130,7 @@ Please include:
 Format the response in clean markdown with proper headings, bullet points, and paragraphs."""
 
     data = {
-        "model": "claude-sonnet-4-5-20250929",
+        "model": "claude-haiku-4-5-20251001",
         "max_tokens": 4096,
         "messages": [
             {
@@ -199,12 +205,14 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             features.append("• AI research: `research-claude: <topic>` (Claude)")
     if INSTAPAPER_ENABLED:
         features.append("• Auto-post to Instapaper → Kobo")
+    features.append("• EOD notes: any plain text → saved for morning brief")
 
     await update.message.reply_text(
         "🎉 **KendallMillerCanSuckIt Bot**\n\n"
         "Features:\n" + "\n".join(features) + "\n\n"
         "Commands:\n"
-        "/status — server health\n",
+        "/status — server health\n"
+        "/eod <note> — explicitly save EOD note\n",
         parse_mode="Markdown"
     )
 
@@ -212,23 +220,47 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not _allowed(update):
         return
-    
+
     status_lines = []
-    
+
     if RESEARCH_ENABLED:
         try:
-            ollama_status = requests.get("http://localhost:11434/api/tags", timeout=2)
+            requests.get("http://localhost:11434/api/tags", timeout=2)
             status_lines.append("Ollama: ✅ Running")
         except:
             status_lines.append("Ollama: ❌ Offline")
-    
+
     if INSTAPAPER_ENABLED:
         status_lines.append("Instapaper: ✅ Configured")
-    
+
     if not status_lines:
         status_lines.append("No features configured")
-    
+
     await update.message.reply_text("\n".join(status_lines))
+
+
+async def cmd_eod(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Explicitly save an end-of-day note for tomorrow's morning brief."""
+    if not _allowed(update):
+        await update.message.reply_text("Unauthorized.")
+        return
+
+    text = update.message.text or ""
+    note = text[len("/eod"):].strip()
+
+    if not note:
+        await update.message.reply_text(
+            "Usage: /eod <your note>\n\n"
+            "Example:\n"
+            "/eod Finished data platform doc. Follow up with Jack tomorrow."
+        )
+        return
+
+    path = save_eod_note(note)
+    await update.message.reply_text(
+        f"EOD note saved. It'll appear in tomorrow's morning brief.\n"
+        f"({path.name})"
+    )
 
 
 async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -237,7 +269,6 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     text = update.message.text.strip()
-    sender = update.effective_user.first_name or "Telegram"
 
     # Research with Claude
     if text.lower().startswith("research-claude:"):
@@ -295,13 +326,10 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text(f"❌ Research error: {e}")
         return
 
-    # Default: helpful message
+    # Default: save as EOD note
+    path = save_eod_note(text)
     await update.message.reply_text(
-        "I didn't understand that command. Try:\n\n"
-        "`research: <topic>` — research with Ollama\n"
-        "`research-claude: <topic>` — research with Claude\n"
-        "/start — show all commands",
-        parse_mode="Markdown"
+        f"Saved to tomorrow's brief. ({path.name})"
     )
 
 
@@ -316,6 +344,7 @@ def main() -> None:
 
     app.add_handler(CommandHandler("start",  cmd_start))
     app.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CommandHandler("eod",    cmd_eod))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     print("KendallMillerCanSuckIt Bot polling…")

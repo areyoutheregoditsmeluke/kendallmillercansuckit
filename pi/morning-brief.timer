@@ -4,7 +4,7 @@ Requires=morning-brief.service
 
 [Timer]
 # Run at 7:30 AM Eastern (11:30 GMT) Monday-Friday
-OnCalendar=Mon-Fri *-*-* 11:30:00
+OnCalendar=Mon-Fri *-*-* 11:30:00 UTC
 Persistent=true
 
 [Install]

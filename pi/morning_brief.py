@@ -201,7 +201,13 @@ Respond with JSON:
 # ── Oura Ring ────────────────────────────────────────────────────────────────
 
 def get_oura_readiness() -> Optional[Dict[str, Any]]:
-    """Fetch today's Oura readiness score"""
+    """Fetch Oura readiness, sleep score, and sleep duration.
+
+    Uses /sleep endpoint for duration fields (daily_sleep lacks them)
+    and filters for the long_sleep record to exclude naps.
+    Uses /daily_sleep for the sleep score.
+    Returns None silently if token is invalid/expired.
+    """
     if not OURA_API_KEY:
         return None
 
@@ -209,7 +215,7 @@ def get_oura_readiness() -> Optional[Dict[str, Any]]:
         today = datetime.now().strftime("%Y-%m-%d")
 
         response = requests.get(
-            f"https://api.ouraring.com/v2/usercollection/daily_readiness",
+            "https://api.ouraring.com/v2/usercollection/daily_readiness",
             headers={"Authorization": f"Bearer {OURA_API_KEY}"},
             params={"start_date": today, "end_date": today},
             timeout=10
@@ -217,30 +223,46 @@ def get_oura_readiness() -> Optional[Dict[str, Any]]:
 
         data = response.json()
 
-        if not data.get('data'):
+        if not data.get("data"):
             return None
 
-        readiness = data['data'][0]
+        readiness = data["data"][0]
 
-        # Also get sleep data
+        # Use /sleep endpoint for duration fields (daily_sleep lacks these)
+        # Query yesterday->today and pick the long_sleep record (not naps)
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
         sleep_response = requests.get(
-            f"https://api.ouraring.com/v2/usercollection/daily_sleep",
+            "https://api.ouraring.com/v2/usercollection/sleep",
             headers={"Authorization": f"Bearer {OURA_API_KEY}"},
-            params={"start_date": today, "end_date": today},
+            params={"start_date": yesterday, "end_date": today},
             timeout=10
         )
 
         sleep_data = sleep_response.json()
-        sleep = sleep_data['data'][0] if sleep_data.get('data') else {}
+        sleep_records = sleep_data.get("data", [])
+        sleep = next(
+            (s for s in sleep_records if s.get("type") == "long_sleep"),
+            sleep_records[0] if sleep_records else {}
+        )
+
+        # Get daily_sleep for the sleep score
+        daily_sleep_resp = requests.get(
+            "https://api.ouraring.com/v2/usercollection/daily_sleep",
+            headers={"Authorization": f"Bearer {OURA_API_KEY}"},
+            params={"start_date": today, "end_date": today},
+            timeout=10
+        )
+        daily_sleep_data = daily_sleep_resp.json()
+        daily_sleep = daily_sleep_data["data"][0] if daily_sleep_data.get("data") else {}
 
         return {
-            'score': readiness.get('score'),
-            'hrv_balance': readiness['contributors'].get('hrv_balance'),
-            'resting_hr': readiness['contributors'].get('resting_heart_rate'),
-            'sleep_score': sleep.get('score'),
-            'total_sleep': sleep.get('total_sleep_duration', 0) // 60,  # minutes
-            'deep_sleep': sleep.get('deep_sleep_duration', 0) // 60,
-            'rem_sleep': sleep.get('rem_sleep_duration', 0) // 60
+            "score": readiness.get("score"),
+            "hrv_balance": readiness["contributors"].get("hrv_balance"),
+            "resting_hr": readiness["contributors"].get("resting_heart_rate"),
+            "sleep_score": daily_sleep.get("score"),
+            "total_sleep": sleep.get("total_sleep_duration", 0) // 60,
+            "deep_sleep": sleep.get("deep_sleep_duration", 0) // 60,
+            "rem_sleep": sleep.get("rem_sleep_duration", 0) // 60
         }
 
     except Exception as e:
@@ -315,12 +337,18 @@ def get_calendar_events() -> List[Dict[str, Any]]:
 # ── Weather ──────────────────────────────────────────────────────────────────
 
 def get_weather() -> Optional[Dict[str, Any]]:
-    """Fetch weather forecast"""
+    """Fetch current weather + true daily high/low from forecast endpoint.
+
+    The /weather endpoint temp_min/temp_max only reflect the current
+    observation period range, not the actual day high/low. We use the
+    /forecast endpoint (3-hour slots) to derive a real daily high/low.
+    """
     if not WEATHER_API_KEY:
         return None
 
     try:
-        response = requests.get(
+        # Current conditions
+        current_resp = requests.get(
             "https://api.openweathermap.org/data/2.5/weather",
             params={
                 "lat": WEATHER_LAT,
@@ -330,16 +358,44 @@ def get_weather() -> Optional[Dict[str, Any]]:
             },
             timeout=10
         )
+        data = current_resp.json()
 
-        data = response.json()
+        # Forecast for true daily high/low (3-hour slots, up to ~48h)
+        forecast_resp = requests.get(
+            "https://api.openweathermap.org/data/2.5/forecast",
+            params={
+                "lat": WEATHER_LAT,
+                "lon": WEATHER_LON,
+                "appid": WEATHER_API_KEY,
+                "units": "imperial",
+                "cnt": 16
+            },
+            timeout=10
+        )
+        forecast_data = forecast_resp.json()
+
+        # forecast dt_txt timestamps are UTC; compare against today UTC
+        today_utc = datetime.utcnow().strftime("%Y-%m-%d")
+        today_slots = [
+            s for s in forecast_data.get("list", [])
+            if s["dt_txt"].startswith(today_utc)
+        ]
+
+        if today_slots:
+            daily_high = int(max(s["main"]["temp_max"] for s in today_slots))
+            daily_low = int(min(s["main"]["temp_min"] for s in today_slots))
+        else:
+            # Fallback: current temp (no forecast slots for today yet)
+            daily_high = int(data["main"]["temp"])
+            daily_low = int(data["main"]["temp"])
 
         return {
-            'temp': int(data['main']['temp']),
-            'feels_like': int(data['main']['feels_like']),
-            'description': data['weather'][0]['description'].title(),
-            'high': int(data['main']['temp_max']),
-            'low': int(data['main']['temp_min']),
-            'humidity': data['main']['humidity']
+            "temp": int(data["main"]["temp"]),
+            "feels_like": int(data["main"]["feels_like"]),
+            "description": data["weather"][0]["description"].title(),
+            "high": daily_high,
+            "low": daily_low,
+            "humidity": data["main"]["humidity"]
         }
 
     except Exception as e:
